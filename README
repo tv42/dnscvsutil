@@ -55,14 +55,18 @@ at the beginning of a line.
   You can add options to !template to change e.g. the email
 address of the hostmaster, or various time-related SOA values.
 
-!template hostmaster=hostmaster@foo.example.com minttl=60000
-
   Entries can span multiple lines by escaping the newlines with
 a backslash, like this:
 
 !template \
         hostmaster=hostmaster@foo.example.com \
+	origin=ns1.example.com \
         minttl=60000
+
+  The default hostmaster is the one set in dns-update.conf, the
+default origin is the current host name (you should override this on
+a per-domain basis to point to the primary nameserver name for that
+domain.
 
   The final domain name of a single zone file is constructed
 like this: reverse the order of directories and join with a period.

@@ -163,16 +163,18 @@ sub convert($$$;) {
 sub template($$$;) {
   my ($name, $serial, $opts) = @_;
   my %vars=%::SOA_DEFAULTS;
+  my %allowed_opts=(origin=>`hostname -f`); #TODO *barf* *puke*
+
   foreach (split ' ',$opts) {
     s/^([a-z]+)=//
       or fail "Invalid options to !template in $name.domain";
-    exists $vars{lc $1}
+    exists $vars{lc $1} or exists $allowed_opts{lc $1}
       or fail "Invalid option $1 to !template in $name.domain";
     $vars{lc $1}=$_;    
   }
   return <<EOF
 \$TTL	$vars{minttl}	; time to live
-@	IN	SOA	$name. $vars{hostmaster}. (
+@	IN	SOA	$vars{origin}. $vars{hostmaster}. (
 	$serial	; serial number
 	$vars{refresh}	; refresh
 	$vars{retry}	; retry

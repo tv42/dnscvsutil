@@ -1,3 +1,14 @@
+dnscvsutil (0.7) unstable; urgency=medium
+
+  * Make SOA records have a good default origin, overridable with
+    !template origin=ns.example.com. You probably need to add an
+    override for every zone to conform with 
+    http://www.dns.net/dnsrd/docs/bog/bog-sh-5.html#sh-5.5.3
+    Closes: #66303.
+  * Upgraded mkrdns to v1.6.
+
+ -- Tommi Virtanen <tv@debian.org>  Wed, 12 Jul 2000 22:20:18 +0300
+
 dnscvsutil (0.6) unstable; urgency=low
 
   * Upgraded mkrdns to version 1.5

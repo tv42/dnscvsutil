@@ -96,9 +96,9 @@ if ( $debug ) {
         print "\n";
 }
 
-# If bootfile wasn't specified, try to find one in /etc...
+# If bootfile wasn't specified, try to find one in /etc/bind...
 unless ( $bootfile ) {
-	my($stdloc) = "/etc";
+	my($stdloc) = "/etc/bind";
 	warn "(warn) No configuration file specified.  Checking in standard location ($stdloc) ...\n";
 
 	opendir(ETC,$stdloc) || die "(fatal) Can't open directory $stdloc:$!";
@@ -781,7 +781,7 @@ network is not auto-generated due to the "1 IN PTR localhost." issue.
 
 mkrdns reads the standard BIND configuration files I<named.boot> and
 I<named.conf>.  If you don't specify the full path to the file on the
-command line, mkrdns assumes that one (or both) will exist in /etc and
+command line, mkrdns assumes that one (or both) will exist in /etc/bind and
 will search for them.  If none are found, the program exits.  If one
 is found, it is used.  If both are found, named.conf is used.
 

@@ -1,3 +1,10 @@
+dnscvsutil (0.8) unstable; urgency=low
+
+  * Make mkrdns default to looking in /etc/bind. Closes: #68759.
+  * Provide section and priority
+
+ -- Tommi Virtanen <tv@debian.org>  Tue, 22 Aug 2000 22:08:44 +0300
+
 dnscvsutil (0.7) unstable; urgency=medium
 
   * Make SOA records have a good default origin, overridable with

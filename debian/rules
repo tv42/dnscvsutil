@@ -49,7 +49,7 @@ binary-indep: build install
 		debian/postrm debian/prerm \
 		debian/tmp/DEBIAN
 	echo /etc/dns-update.conf >debian/tmp/DEBIAN/conffiles
-	dpkg-gencontrol
+	dpkg-gencontrol -isp
 	dpkg --build debian/tmp ..
 
 source diff:                                                                  

@@ -31,7 +31,7 @@ if [ "$1" = "configure" ]; then
     fi
 fi
 
-PACKAGE=cdb
+PACKAGE=dnscvsutil
 if [ "$1" = "configure" ]; then
 	if [ -d /usr/doc -a ! -e /usr/doc/$PACKAGE \
             -a -d /usr/share/doc/$PACKAGE ]; then

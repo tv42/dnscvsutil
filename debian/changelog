@@ -1,3 +1,10 @@
+dnscvsutil (0.4) unstable; urgency=low
+
+  * Fixed a cut-and-paste error that made dnscvsutil create a
+    /usr/doc/cdb symlink.
+
+ -- Tommi Virtanen <tv@debian.org>  Sun, 19 Dec 1999 13:13:36 +0200
+
 dnscvsutil (0.3) unstable; urgency=low
 
   * FHS. The transition is ugly. Bare with me.

@@ -1,0 +1,17 @@
+#!/bin/sh -e
+
+if [ -d /var/state/dnscvsutil ]; then
+    cat <<EOF
+
+You have an old version of dnscvsutil installed. Sorry,
+there's no automatic upgrade procedure. Release all
+checked-out dnscvsutil CVS work dirs and manually move
+/var/state/dnscvsutil to /var/lib/dnscvsutil, and be
+careful about preserving file owners and modes. After
+that, rerun the upgrade.
+
+Press [ENTER] to continue..
+EOF
+    read foo
+    exit 1
+fi

@@ -19,7 +19,7 @@
 #
 
 use strict;
-use vars qw($BASEDIR $FROM $PRIMARY $RUNAFTER $TO);
+use vars qw($BASEDIR $FROM $PRIMARY $RUNAFTER $TO %SOA_DEFAULTS);
 use File::Find;
 use POSIX qw(strftime);
 use MD5;
@@ -140,31 +140,44 @@ sub convert($$$;) {
     or fail "Cannot write to $to: $!";
   local $_;
   while(<IN>) {
-    if(/^!template/i) {
-      print OUT template($name, $serial) 
+    chomp;
+    while (/\\$/) {
+      my $tmp=<IN>;
+      defined $tmp
+        or fail "End of file while combining lines in $name";
+      chomp $tmp;
+      $_.=$tmp;
+    }
+    if(s/^!template(?:$|\s+)//i) {
+      print OUT template($name, $serial, $_) 
         or fail "Cannot write to $to: $!";
     }
     else {
-      print OUT or fail "Cannot write to $to: $!";
+      print OUT "$_\n" or fail "Cannot write to $to: $!";
     }
   }
   close(IN) or fail "Close failed on $from: $!";
   close(OUT) or fail "Close failed on $to: $!";
 }
 
-sub template($$;) {
-  my ($name, $serial) = @_;
+sub template($$$;) {
+  my ($name, $serial, $opts) = @_;
+  my %vars=%::SOA_DEFAULTS;
+  foreach (split ' ',$opts) {
+    s/^([a-z]+)=//
+      or fail "Invalid options to !template in $name.domain";
+    exists $vars{lc $1}
+      or fail "Invalid option $1 to !template in $name.domain";
+    $vars{lc $1}=$_;    
+  }
   return <<EOF
-@	IN	SOA	$name. hostmaster.naantali.fi. (
+\$TTL	$vars{minttl}	; time to live
+@	IN	SOA	$name. $vars{hostmaster}. (
 	$serial	; serial number
-	28800	; refresh
-	7200	; retry
-	604800	; expire
-	86400 )	; minimum time-to-live
-	NS	ns.naantali.fi.
-	NS	ns2.naantali.fi.
-
-
+	$vars{refresh}	; refresh
+	$vars{retry}	; retry
+	$vars{expire}	; expire
+	$vars{negttl} )	; negative cache time-to-live
 EOF
 }
 

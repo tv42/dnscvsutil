@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-PACKAGE	= $(shell perl -e 'print <> =~ /^(.*) \(.*\)/' debian/changelog)
+PACKAGE	= dnscvsutil
 
 build: build-stamp
 build-stamp:
@@ -23,29 +23,30 @@ install-stamp: build-stamp
 	$(MAKE) install DESTDIR=`pwd`/debian/tmp
 	touch install-stamp
 
-binary-indep: build install
-
 binary-arch: build install
+
+binary-indep: build install
 	test -e debian/control
 	test root = "`whoami`" || (echo need root priviledges; exit 1)
 	rm -rf debian/substvars debian/tmp
 	make install DESTDIR="`pwd`/debian/tmp"
 	install -d --mode=0755 \
-		"debian/tmp/var/state/dnscvsutil" \
-		"debian/tmp/var/state/dnscvsutil/cvs" \
-		"debian/tmp/var/state/dnscvsutil/domains" \
-		"debian/tmp/var/state/dnscvsutil/compiled"
-	install -d --mode=0755 "debian/tmp/usr/doc/$(PACKAGE)"
+		"debian/tmp/var/lib/dnscvsutil" \
+		"debian/tmp/var/lib/dnscvsutil/cvs" \
+		"debian/tmp/var/lib/dnscvsutil/domains" \
+		"debian/tmp/var/lib/dnscvsutil/compiled"
+	install -d --mode=0755 "debian/tmp/usr/share/doc/$(PACKAGE)"
 	install --mode=0644 debian/copyright \
 		README \
-		"debian/tmp/usr/doc/$(PACKAGE)"
-	gzip -9 "debian/tmp/usr/doc/$(PACKAGE)/README"
-	gzip -9 debian/tmp/usr/man/man1/*
+		"debian/tmp/usr/share/doc/$(PACKAGE)"
+	gzip -9 "debian/tmp/usr/share/doc/$(PACKAGE)/README"
+	gzip -9 debian/tmp/usr/share/man/man1/*
 	install --mode=0644 debian/changelog \
-		"debian/tmp/usr/doc/$(PACKAGE)/changelog"
-	gzip -9 debian/tmp/usr/doc/"$(PACKAGE)"/changelog
+		"debian/tmp/usr/share/doc/$(PACKAGE)/changelog"
+	gzip -9 debian/tmp/usr/share/doc/"$(PACKAGE)"/changelog
 	install -d --mode=0755 debian/tmp/DEBIAN
-	install --mode=0755 debian/postinst debian/postrm \
+	install --mode=0755 debian/postinst debian/preinst \
+		debian/postrm debian/prerm \
 		debian/tmp/DEBIAN
 	echo /etc/dns-update.conf >debian/tmp/DEBIAN/conffiles
 	dpkg-gencontrol

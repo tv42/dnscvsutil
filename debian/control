@@ -1,12 +1,13 @@
 Source: dnscvsutil
-Section: main/net
+Section: net
 Priority: optional
 Maintainer: Tommi Virtanen <tv@debian.org>
-Standards-Version: 2.5.1
+Standards-Version: 3.1.1
+Build-Depends-Indep: 
 
 Package: dnscvsutil
 Architecture: all
-Depends: perl5, bind (>= 8.0.0), cvs, libmd5-perl
+Depends: perl5, bind (>= 1:8.2.1-5), cvs, libdigest-md5-perl
 Description: Maintain DNS zone files under CVS control
  Maintain your DNS zone files under CVS control, and
  possibly automatically updating reverse zones.

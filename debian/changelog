@@ -1,0 +1,34 @@
+dnscvsutil (0.3) unstable; urgency=low
+
+  * FHS. The transition is ugly. Bare with me.
+  * Oops. There was local config stuff in dns-update.
+    Made more things configurable. Apparently no one
+    is using this stuff.. :(
+  * !template no longer includes NS entries. Make sure
+    you add them to your zone files.
+  * Added the possibility to give options to !template.
+  * New config option: SOA_DEFAULTS gives defaults for
+    !template.
+  * Change dependency on libmd5-perl to libdigest-md5-perl.
+  * Cleaned debian/rules.
+  * Added build-depends-indep, eventhough it is empty.
+  * Remove newlines escaped with backslash.
+  * Changes in the config file and template header.
+
+ -- Tommi Virtanen <tv@debian.org>  Sat,  4 Dec 1999 23:20:46 +0200
+
+dnscvsutil (0.2) unstable; urgency=low
+
+  * Oops. Made it architecture: all.
+
+ -- Tommi Virtanen <tv@debian.org>  Wed, 14 Jul 1999 12:08:08 +0300
+
+dnscvsutil (0.1) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Tommi Virtanen <tv@debian.org>  Wed, 23 Jun 1999 11:35:02 +1000
+
+Local variables:
+mode: debian-changelog
+End:

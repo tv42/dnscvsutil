@@ -18,7 +18,7 @@
 #
 
 PREFIX=/usr
-MANDIR=$(DESTDIR)$(PREFIX)/man/man1
+MANDIR=$(DESTDIR)$(PREFIX)/share/man/man1
 BINDIR=$(DESTDIR)$(PREFIX)/bin
 CONFDIR=$(DESTDIR)/etc
 

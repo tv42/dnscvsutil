@@ -13,29 +13,29 @@ licensed under the GNU Generic Public License.
 here's a quick rundown on the setup:
 
 Directories:
-        /var/state/dnscvsutil/cvs
+        /var/lib/dnscvsutil/cvs
                 - holds the CVS repository that is used to manage 
                   the zone files.
-        /var/state/dnscvsutil/domains
+        /var/lib/dnscvsutil/domains
                 - holds a central checked out copy of the CVS 
                   repository. Used to generate the actual zone files.
-        /var/state/dnscvsutil/compiled
+        /var/lib/dnscvsutil/compiled
                 - holds the generated zone files.
 
 Files:
         /etc/dns-update.conf
                 - configuration file for dns-update.
-        /var/state/dnscvsutil/compiled/named-primary.conf
+        /var/lib/dnscvsutil/compiled/named-primary.conf
                 - generated named.conf snippet -- include in your
-                  /etc/named.conf with a line like this:
-include "/var/state/dnscvsutil/compiled/named-primary.conf";
+                  /etc/bind/named.conf with a line like this:
+include "/var/lib/dnscvsutil/compiled/named-primary.conf";
 
 Groups:
         dnsadmin - the people who should have access to
                    dnscvsutil zones should be added here.
 
 Commands:
-        cvs -d /var/state/dnscvsutil/cvs co domains
+        cvs -d /var/lib/dnscvsutil/cvs co domains
         - check out a working directory for you
         dns-update
         - update the DNS information from the CVS
@@ -50,7 +50,19 @@ with the SOA record replaced with
 
 !template
 
-on a line by itself.
+at the beginning of a line.
+
+  You can add options to !template to change e.g. the email
+address of the hostmaster, or various time-related SOA values.
+
+!template hostmaster=hostmaster@foo.example.com minttl=60000
+
+  Entries can span multiple lines by escaping the newlines with
+a backslash, like this:
+
+!template \
+        hostmaster=hostmaster@foo.example.com \
+        minttl=60000
 
   The final domain name of a single zone file is constructed
 like this: reverse the order of directories and join with a period.

@@ -1,0 +1,40 @@
+#!/bin/sh -e
+
+STATEDIR="/var/lib/dnscvsutil"
+if [ "$1" = "configure" ]; then
+    if [ \! -d "$STATEDIR/cvs/CVSROOT" ]
+    then
+        addgroup --quiet dnsadmin
+        cvs -d "$STATEDIR/cvs" init
+        mkdir "$STATEDIR/cvs/domains"
+        chgrp -R dnsadmin "$STATEDIR/cvs" \
+            "$STATEDIR/compiled"
+        cd "$STATEDIR"
+        cvs -q -d "$STATEDIR/cvs" co -l domains
+        chgrp -R dnsadmin "$STATEDIR/domains"
+        chmod g+ws "$STATEDIR/cvs" \
+            "$STATEDIR/cvs/CVSROOT" \
+            "$STATEDIR/cvs/domains" \
+            "$STATEDIR/cvs/domains/CVS" \
+            "$STATEDIR/domains" \
+            "$STATEDIR/compiled"
+    elif [ "$(cat $STATEDIR/domains/CVS/Root)" \
+            = "/var/state/dnscvsutil/cvs" ]; then
+        # Moving /var/state to /var/lib, need to re-checkout
+        # the dns-update CVS tree
+        rm -rf "$STATEDIR/domains"
+        cd "$STATEDIR"
+        cvs -q -d "$STATEDIR/cvs" co -l domains
+        chgrp -R dnsadmin "$STATEDIR/domains"
+        chmod g+ws "$STATEDIR/domains" \
+             "$STATEDIR/domains/CVS"
+    fi
+fi
+
+PACKAGE=cdb
+if [ "$1" = "configure" ]; then
+	if [ -d /usr/doc -a ! -e /usr/doc/$PACKAGE \
+            -a -d /usr/share/doc/$PACKAGE ]; then
+		ln -sf ../share/doc/$PACKAGE /usr/doc/$PACKAGE
+	fi
+fi

@@ -135,13 +135,13 @@ sub convert($$$;) {
       or grep {$_ eq '-f'} @ARGV;
   
   my $serial = newserial "$to.serial";
-  open(OUT, "> $to") or fail "Cannot open $to for writing: $!";
+  open(OUT, "> $to.tmp") or fail "Cannot open $to.tmp for writing: $!";
   print OUT ";;; This file is auto-generated. Do not edit!\n"
-    or fail "Cannot write to $to: $!";
+    or fail "Cannot write to $to.tmp: $!";
   local $_;
   while(<IN>) {
     chomp;
-    while (/\\$/) {
+    while (s/\\$//) {
       my $tmp=<IN>;
       defined $tmp
         or fail "End of file while combining lines in $name";
@@ -150,14 +150,15 @@ sub convert($$$;) {
     }
     if(s/^!template(?:$|\s+)//i) {
       print OUT template($name, $serial, $_) 
-        or fail "Cannot write to $to: $!";
+        or fail "Cannot write to $to.tmp: $!";
     }
     else {
-      print OUT "$_\n" or fail "Cannot write to $to: $!";
+      print OUT "$_\n" or fail "Cannot write to $to.tmp: $!";
     }
   }
   close(IN) or fail "Close failed on $from: $!";
-  close(OUT) or fail "Close failed on $to: $!";
+  close(OUT) or fail "Close failed on $to.tmp: $!";
+  rename("$to.tmp", "$to") or "Rename $to.tmp to $to failed: $!";
 }
 
 sub template($$$;) {

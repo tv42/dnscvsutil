@@ -1,0 +1,15 @@
+dnscvsutil (0.2) unstable; urgency=low
+
+  * Oops. Made it architecture: all.
+
+ -- Tommi Virtanen <tv@debian.org>  Wed, 14 Jul 1999 12:08:08 +0300
+
+dnscvsutil (0.1) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Tommi Virtanen <tv@debian.org>  Wed, 23 Jun 1999 11:35:02 +1000
+
+Local variables:
+mode: debian-changelog
+End:

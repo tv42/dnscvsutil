@@ -22,7 +22,7 @@ use strict;
 use vars qw($BASEDIR $FROM $PRIMARY $RUNAFTER $TO %SOA_DEFAULTS);
 use File::Find;
 use POSIX qw(strftime);
-use MD5;
+use Digest::MD5;
 
 sub fail(@) { die "$0: @_\n" }
 
@@ -114,7 +114,7 @@ sub md5_modified($*) {
   } else {
     $oldsum = '';
   }
-  my $md5 = new MD5;
+  my $md5 = new Digest::MD5;
   $md5->addfile($fh);
   seek($fh, 0, 0) or fail "Cannot rewind: $!";
   my $newsum = $md5->hexdigest();

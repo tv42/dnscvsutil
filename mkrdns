@@ -1,19 +1,19 @@
 #!/usr/bin/perl
 #
-# mkrdns - Make Reverse DNS - Version 1.6
+# mkrdns - Make Reverse DNS - Version 2.1
 #
-# By: Theo Van Dinter (felicity@mkrdns.org, tvd@colltech.com) (c) 1998-2000
-# Revision Info: $Id: mkrdns,v 1.27 2000/05/13 16:54:59 felicity Stab $
+# By: Theo Van Dinter (felicity@mkrdns.org, tvd@colltech.com) (c) 1998-2001
+# Revision Info: $Id: mkrdns,v 1.44 2001/07/12 15:13:44 felicity Stab $
 #
 # The goal of this script is to automatically generate new reverse IP
 # mapping zone files for DNS/BIND.  It's been done before, but there
 # always seems to be something which makes it not workable in my
 # environment.  This script should hopefully fix that.
 #
-# Feel free to subscribe to the mkrdns mailing list by sending a message to
-# "majordomo@mkrdns.org" with the message body "subscribe mkrdns <addr>".  The
-# list is available to discuss mkrdns-related topics (mkrdns, DNS, etc.) and is
-# also used to announce new versions of mkrdns.
+# Feel free to subscribe to the mkrdns mailing list by sending a message
+# to "majordomo@mkrdns.org" with the message body "subscribe mkrdns <addr>".
+# The list is available to discuss mkrdns-related topics (mkrdns, DNS,
+# etc.) and is also used to announce new versions of mkrdns.
 #
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -33,7 +33,6 @@
 
 use strict;
 use Getopt::Long;
-use MD5;
 use POSIX qw(strftime);
 
 # User Specified variables (commandline)
@@ -43,25 +42,29 @@ my($bootfile) = "";	# configuration file to use (user)
 my($ext) = "";		# extension for output files (user)
 my($quiet) = 0;		# show errors only, or warnings too?
 my($version) = 0;	# show version information
+my($rootdir) = "/";	# root directory for files
+my($whichhash) = 1;	# which hash function to use
 
 # Program needed variables
-my($i,@domains,%networks,%maps,%serial,%mips,%hash,%ptrs,%netmap,@toskip);
-my(%zonetoskip,$nameddir,%numordate,%dfile);
-my($pversion) = "1.6";
+my($i,@domains,%networks,%maps,%serial,%mips,%hash,%netmap,@toskip);
+my(%zonetoskip,$nameddir,%numordate,%files,$toskip);
+my($pversion) = "2.1";
 
 # Get commandline parameters
 $i=&GetOptions("debug" => \$debug,
-			"help" => \$help,
+			"help|h" => \$help,
 			"extension=s" => \$ext,
 			"quiet" => \$quiet,
 			"version" => \$version,
+			"rootdir=s" => \$rootdir,
+			"hash=i" => \$whichhash,
 			"<>" => sub{$bootfile = $_[0]},	# any "non-option" is
 							# config (boot) file
 		);
 
 if ( $version || !$i || $help ) {
 	print "
-mkrdns v$pversion (c) 1998-2000
+mkrdns v$pversion (c) 1998-2001
 By: Theo Van Dinter (felicity\@mkrdns.org, tvd\@colltech.com)
 
 ";
@@ -71,8 +74,10 @@ By: Theo Van Dinter (felicity\@mkrdns.org, tvd\@colltech.com)
 Options:
 -debug\t\tTurn on debugging (warning, this prints a *LOT* of info)
 -extension\tAppend given extension to output files
+-hash\t\tSpecify which hash function to use (1=MD5,0=32bit Csum)
 -help\t\tShow this help screen
 -quiet\t\tTurn off warning messages (multiple A records -> IP, etc.)
+-rootdir\tSpecify the root directory that named will run in (chroot)
 -version\tShow the mkrdns version information
 
 Configuration file is the full path to either named.boot or named.conf.
@@ -86,38 +91,68 @@ if ( $ext =~ /^\./ ) { # Remove the '.'s from the start of the extention ...
 	warn "(warn) Extension started with '.' -- removed.  Extention now '$ext'.\n";
 }
 
+# Check for invalid hash function
+if ( $whichhash != 0 && $whichhash != 1 ) {
+	die qq{(fatal) Invalid Hash function specified! ($whichhash)\n};
+}
+
+# Use MD5 if requested
+if ( $whichhash == 1 ) {
+	use Digest::MD5 qw(md5_hex);
+}
+
 if ( $debug ) {
-        print "Debugging turned on.\n";
-        print "Version     = $pversion\n";
-        print 'C. Revision = $Id: mkrdns,v 1.27 2000/05/13 16:54:59 felicity Stab $',"\n";
-        print "Help        = $help\n";
+        print	"Debugging turned on.\n",
+        	"Version     = $pversion\n",
+        	'C. Revision = $Id: mkrdns,v 1.44 2001/07/12 15:13:44 felicity Stab $',"\n",
+        	"Help        = $help\n",
+        	"Quiet Mode  = $quiet\n",
+		"Root Dir    = $rootdir\n";
         print "Extension   = $ext\n" if ( $ext );
-        print "Quiet Mode  = $quiet\n";
+	print "Hash Func   = $whichhash (",
+		(($whichhash == 1) ? "MD5" :
+			($whichhash == 0 ) ? "32-bit checksum" :
+			"Unknown"),
+		")\n";
         print "\n";
 }
 
-# If bootfile wasn't specified, try to find one in /etc/bind...
+$rootdir = &FixPath($rootdir);
+if ( $rootdir !~ m#^/# || $rootdir =~ m#^/?\.\.(/|$)# ) {
+	die qq{(fatal) Root directory ("$rootdir") is invalid.\n};
+}
+
+# If bootfile wasn't specified, try to find one in standard locations ...
 unless ( $bootfile ) {
-	my($stdloc) = "/etc/bind";
-	warn "(warn) No configuration file specified.  Checking in standard location ($stdloc) ...\n";
+	my($stdloc);
+	my(@locs) = qw{	/etc/bind /etc /var/named /usr/named
+			/usr/local/etc /usr/freeware/etc /etc/named };
 
-	opendir(ETC,$stdloc) || die "(fatal) Can't open directory $stdloc:$!";
-	my(@files) = grep( /^named\.(boot|conf)$/, readdir(ETC) );
-	closedir(ETC);
+	warn "(warn) No configuration file specified.  Checking in standard locations ...\n";
 
-	print "(debug) Config files found in $stdloc: ",join(",",@files),"\n" if ( $debug );
+	foreach $stdloc ( @locs ) {
+		opendir(DIR,$stdloc) || next;
+		my(@files) = grep( /^named\.(boot|conf)$/, readdir(DIR) );
+		closedir(DIR);
 
-	if ( $#files == -1 ) { # named.boot and named.conf weren't found, exit.
-		die "(fatal) Neither named.boot nor named.conf were found.  Exiting.\n";
+		print "(debug) Config files found in $stdloc: ",join(",",@files),"\n" if ( $debug );
+
+		if ( $#files == -1 ) { # named.boot and named.conf weren't found, exit.
+			print qq{(debug) Neither named.boot nor named.conf were found in "$stdloc".\n} if ( $debug );
+		}
+		elsif ( $#files == 0 ) { # one file was found, use it.
+			$bootfile = "$stdloc/$files[0]";
+			warn "(info) $bootfile was found.\n";
+		}
+		else { # more than one file was found, use the "best" one.
+			$bootfile = "$stdloc/named.conf";
+			warn "(info) Multiple configuration files were found, using $bootfile.\n";
+		}
+
+		last if ( $bootfile );
 	}
-	elsif ( $#files == 0 ) { # one file was found, use it.
-		$bootfile = "$stdloc/$files[0]";
-		warn "(info) $bootfile was found.\n";
-	}
-	else { # more than one file was found, use the "best" one.
-		$bootfile = "$stdloc/named.conf";
-		warn "(info) Multiple configuration files were found, using $bootfile.\n";
-	}
+
+	die "(die) Couldn't find either named.boot or named.conf in any standard location.  Exiting.\n" unless ( $bootfile );
 }
 
 READCONF: {
@@ -134,7 +169,7 @@ READCONF: {
 	while ( $_ = <CONF> ) { # deal with the includes!
 		if ( (/^directory/i && $type eq "boot") ||
 			(/\bdirectory\s+"[^"]+";/ && $type eq "conf") ) {
-			($nameddir) = ( m/\bdirectory\s+\"?([^\"\s]+)\"?/i );
+			$nameddir = (m/\bdirectory\s+\"?([^\"\s]+)\"?/i)[0];
 			print "(debug) Named Directory = $nameddir\n" if ( $debug );
 		}
 
@@ -146,7 +181,7 @@ READCONF: {
 			# (conf) ^include "<file>";
 			for(my($i)=0; $i<=$#conf; $i++) {
 				next unless ( $conf[$i] =~ /\binclude\s/i ); # skip non includes ...
-				chomp($conf[$i]);
+				chomp $conf[$i];
 				print "(debug) Include statement ($conf[$i]) found.\n" if ( $debug );
 
 				my($file) = ( $conf[$i] =~ m/\binclude\s+\"?([^\"\s]+)\"?/i );
@@ -159,6 +194,7 @@ READCONF: {
 					$file = "$nameddir/$file";
 				}
 
+				$file = &Handle_Path($rootdir,$file);
 				print "(debug) Including file $file.\n" if ( $debug );
 				open(IN,"<$file") || die "(fatal) Can't open $file:$!";
 				splice @conf, $i--, 1, <IN>;	# replace include with data then recheck index
@@ -177,57 +213,26 @@ READCONF: {
 	# no directory statement anywhere?
 	die "(fatal) No named directory specified!\n" unless ( $nameddir );
 
-	my(%files);
-
 	if ( $type eq "boot" ) { # parse named.boot
+		# deal with directives
+		foreach ( grep(/^;\s*mkrdns\s+/, split(/\n/,$config)) ) {
+			s/^;\s*mkrdns\s+//;
+			&Directives($_);
+		}
+
 		foreach $i ( split(/\n/,$config) ) {
-			$i=~s/\#.+$//; # remove comments
+			$i=~s/;.*$//; # remove comments
 			$i=~s/^\s+//; # remove whitespace
 			$i=~s/\s+$//;
 
-			if ( $i=~/^;\s*mkrdns/i ) { # mkrdns directive
-				$i=~s/^;\s*mkrdns\s+//; # strip header
-				&Directives($i);
-			}
-			elsif ( $i=~/^(primary|secondary)/i ) { # primary/secondary domain ...
+			if ( $i=~/^(primary|secondary)/i ) { # primary/secondary domain ...
 				my($type,$domain,$tmp,$file) =
 					($i=~/^(\S+)\s+(\S+)\s+(\S+\s+)?(\S+)\s*$/);
 
 				# Skip IP domains we don't control.
 				next if ( $type=~/^secondary$/i && $domain=~/\.arpa$/i );
-				if ( $zonetoskip{$domain} ) {
-					print "(debug) Skipping zone $domain, matched skipzone.\n" if ($debug);
-					next;
-				}
 
-				unless ( $domain && $file ) {
-					warn qq{(warn) Error with line "$i" in "$bootfile".\n};
-					next;
-				}
-
-				# The file is already being used!
-				die qq#(fatal) The zone file "$file" is being used by two zones!  Error in config file!\n($files{$file} and $domain ...)\n# if ( $files{$file} );
-
-				$files{$file} = $domain;
-				$file = "$nameddir/$file" if ( $file !~ m!^/! ); # full path or relative?
-				$dfile{$file} = $domain;
-
-				if ( $domain =~ m!\.arpa$!i ) { # network
-					$domain =~ s/\.in-addr\.arpa$//i; # just the net ...
-					if ( $domain =~ /127$/ ) { # silently skip 127.*
-						print "(debug) Skipping $file for the 127.* network.\n"
-							if ( $debug );
-						next;
-					}
-					$domain = join( ".", reverse(split(/\./,$domain)) );
-					$networks{$domain} = $file;
-					print qq{(debug) Network "$domain", File "$file", Type "$type".\n} if ( $debug );
-				}
-				else { # "normal" domain
-					# read in domains in order presented.
-					push(@domains,"$domain:$file");
-					print qq{(debug) Domain "$domain", File \"$file\", Type "$type".\n} if ( $debug );
-				}
+				&Handle_Domain($i,$type,$domain,$file,\%files);
 			}
 		}
 	}
@@ -253,58 +258,36 @@ READCONF: {
 
 		# determine which domains and networks we are master for.
 		# this first regexp is *REALLY* a pain.
-		foreach $i ( $config =~ m/\b(zone\s+\"[^\"]+?\"\s+\w*\s*\{\s*type\s+(?:master|slave)\s*\;\s*file\s+\"[^\"]+?\")/isg ) {
-			my($domain,$file) = ( $i=~/\"([^\"]+)\"/g );
-			my($type) = ( $i=~/type\s+(master|slave)/i );
+		foreach $i ( $config =~ m/\b(zone\s*".+?".*?{\s*type.+?;\s*file.+?;)/isg ) {
+			my($domain,$file) = ( $i=~/\"(.+?)\"/g );
+			my($type) = ( $i=~/type\s+(\S+?);/i );
 
-			# Skip IP domains we don't control.
+			# Skip non-master/slave zones
+			next unless ( $type =~ /master|slave/i );
+
+			# Skip IP zones we don't control.
 			next if ( $type=~/^slave$/i && $domain=~/\.arpa$/i );
 
-			if ( $zonetoskip{$domain} ) {
-				print "(debug) Skipping zone $domain, matched skipzone.\n" if ($debug);
-				next;
-			}
-
-			# The file is already being used!
-			die qq#(fatal) The zone file "$file" is being used by two zones!  Error in config file!\n($files{$file} and $domain ...)\n# if ( $files{$file} );
-      
-			$files{$file} = $domain;
-			# full path or relative?
-			$file = "$nameddir/$file" if ( $file !~ m!^/! );
-			$dfile{$file} = $domain;
-
-			if ( $domain =~ /\.arpa$/i ) { # network
-				$domain =~ s/\.in-addr\.arpa$//i; # just the net ...
-				if ( $domain =~ /127$/ ) { # silently skip 127.*
-					print "(debug) Skipping $file for the 127.* network.\n"
-						if ( $debug );
-					next;
-				}
-				$domain = join( ".", reverse(split(/\./,$domain)) );
-				$networks{$domain} = $file;
-				print qq{(debug) Network "$domain", File "$file", Type "$type".\n} if ( $debug );
-			}
-			else { # "normal" domain, read in domains in order presented.
-				push(@domains,"$domain:$file");
-				print qq{(debug) Domain "$domain", File "$file", Type "$type".\n} if ( $debug );
-			}
+			&Handle_Domain($i,$type,$domain,$file,\%files);
 		}
 	}
 }
 
-# Done with reading in configs!
-my($md5) = new MD5; # get ready for MD5 checks ...
+# Take the array of regexs to skip and put them in a single var
+$toskip = @toskip ? join("|",@toskip) : undef;
 
 # Read in current reverse maps, report errors.  Remember non-PTR lines
 # for creation later on.
 REVERSE: {
 	while ( my($net,$file) = each %networks ) {
 		open(IN,"<$file") || die qq{(fatal) Can't open "$file" for reading:$!};
-		$md5->reset();
 		seek(IN,0,0);
-		$md5->add(<IN>);
-		$hash{$net} = $md5->hexdigest; # get the MD5 value for the original file
-		print "(debug) Generated MD5 value for $file: $hash{$net}.\n" if ( $debug );
+		{
+			local $/=undef; # slurp mode
+			$hash{$net} = Do_Hash($whichhash,<IN>); # get the hash value for the original file
+		}
+
+		print "(debug) Generated hash value for $file: $hash{$net}.\n" if ( $debug );
 
 		print "(debug) Scanning $file for non-PTR lines:\n" if ( $debug );
 		seek(IN,0,0);
@@ -314,7 +297,7 @@ REVERSE: {
 		close(IN);
 
 		# Pick out the serial number ( should be YYYYMMDDVV )
-		($i = $maps{$net}) =~ s/;.+?\n//g; # remove comments
+		($i = $maps{$net}) =~ s/\s*;.+?\n//g; # remove comments
 		($serial{$file}) = ( $i =~ m!\(\s*(\d+)!s );
 
 		if ( $debug ) { # print out non-PTR records (long...?)
@@ -329,19 +312,23 @@ REVERSE: {
 # Read in current forward maps, convert A records into PTR records,
 # add to map.  If there are multiple A records for a given IP, report
 # duplicate, and keep first.
+#
+# This routine is the biggest time suck...
+#
 READIN: {
 	foreach ( @domains ) {
 		my($domain,$map) = split(/:/,$_); # $domain = domain, $map = map file
 		my($last) = "$domain.";	# what to use in case of blank hostname
 					# hostname, $ORIGIN, domain in that order
-		my($ext) = $last;	# what to use in case of relative hostname
+		my($end) = $last;	# what to use in case of relative hostname
 					# $ORIGIN then domain, in that order	
 
 		print "(debug) Reading in entries from $map for domain $domain.\n"
 			if ( $debug );
 
+		my(@data);
 		open(IN,"<$map") || die "(fatal) Can't open $map:$!";
-		my(@data) = grep(chomp,<IN>); # slurp in map file w/out ending \n's
+		chomp(@data=<IN>); # slurp in map file w/out ending \n's
 		close(IN);
 
 		# deal with $INCLUDE and $GENERATE statements ...
@@ -350,12 +337,14 @@ READIN: {
 		for($i=0; $i<=$#data; $i++) {
 			next unless ( $data[$i] =~ /^\$(INCLUDE|GENERATE)/ ); # skip non-include/generate lines
 
+			$data[$i]=~s/;.*$//; # remove comments & whitespace
+			$data[$i]=~s/\s+$//;
+
 			if ( $data[$i] =~ /^\$GENERATE/ ) {
 				print qq{(debug) "$data[$i]" specified.\n} if ( $debug );
 
 				# Set ORIGIN to blank -- we'll handle it later.
 				splice @data, $i, 1, &Handle_GENERATE("",$data[$i]);
-				$i--;
 			}
 			elsif ( $data[$i] =~ /^\$INCLUDE/ ) {
 				# $INCLUDE <file> <origin>
@@ -365,8 +354,10 @@ READIN: {
 
 				$file = "$nameddir/$file" unless ( $file =~ m!^/! );
 
+				$file = &Handle_Path($rootdir,$file);
+				my(@inc);
 				open(IN,"<$file") || die qq{(fatal) Can't read \$INCLUDE file "$file":$!};
-				my(@inc) = grep(chomp, <IN>);
+				chomp(@inc=<IN>);
 				close(IN);
 
 				if ( $origin ) {	# specified origin applies only to specified
@@ -374,7 +365,7 @@ READIN: {
 							# of zone file.  see BIND 3rd ed. p.146
 
 					# put $ORIGIN and included file at the end of the config
-					splice @data, $#data+1, 0, "\$ORIGIN $origin", @inc;
+					push(@data,"\$ORIGIN $origin", @inc);
 					splice @data, $i, 1; # remove $INCLUDE line
 				}
 				else { # just replace the $INCLUDE line with the contents of file
@@ -387,67 +378,68 @@ READIN: {
 		# the file should be fully expanded in memory now.
 		# go through all 'host ? ? ?' and $ORIGIN lines ...
 		foreach $i ( grep(/^(\S*(\s+\d+)?(\s+\w+)?\s+\S+\s+|\$ORIGIN)/i,@data) ) {
-			$i =~ s/;.*$//; # strip comments ...
-			next unless ( $i =~ /\S/ ); # skip blanks
+			$i =~ s/\s*;.*$//; # strip comments ...
+			next unless ( length $i ); # skip blanks
 
 			if ( $i =~ /^\$ORIGIN/i ) { # $ORIGIN!
-				($ext) = ( $i =~ /^\$ORIGIN\s+(\S+)/i );
-				$ext .= ".$domain." if ( $ext !~ /\.$/ ); # not FQDN
+				$end = (split(/\s+/,$i))[1];
+				$end .= ".$domain." if ( $end !~ /\.$/ ); # not FQDN
 
-				print qq{(debug) "$i" specified.  Final = "$ext".\n} if ( $debug );
+				$last = lc $end;
+				print qq{(debug) "$i" specified.  Final = "$last".\n} if ( $debug );
 
-				$last = $ext;
 				next;
 			}
 				
 			# parse the line
-			my($host,$type,$ip) = ($i=~m!^(\S*)(?:\s+\d+)?(?:\s+\w+)?\s+(\w+)\s+(\S+)!i);
+			my($host,$type,$ip) = ($i=~m!^(\S*)(?:\s+\d+)?(?:\s+\w+)?\s+(\w+)\s+(\S+)!);
+
 			$host = lc $host; # lowercase the host
 			$type = uc $type; # make sure the type (A,MX,etc) is uppercase
 
-			$host = $ext if ( $host eq "@" ); # @ = ORIGIN
+			next unless ( $type ); # in SOA " 30 ; comment" ...
+
+			$host = $end if ( $host eq "@" ); # @ = ORIGIN
 
 			# what to do with host?  interact with last if necessary ...
 			if ( $host eq "" ) { # it's a blank, use the last entry ...
 				$host = $last;
 			}
 			elsif ( $host !~ /\.$/ ) { # relative hostname
-				$last = $host = "$host.$ext";
+				$last = $host = "$host.$end";
 			}
 			else { # FQDN!
 				$last = $host;
 			}
 
+			# This needs to stay here for proper " A 10.0.0.0"
+			# behavior -- DON'T MOVE ME (again) BAD BAD THEO!
 			next unless ( $type eq "A" ); # skip non-A records
 
 			# should we skip?
-			foreach $i ( @toskip ) {
-				if ( $host=~/$i/ || $ip=~/$i/ ) {
-					print "(debug) Skipping $host/$ip, matched toskip regexp ($i).\n"
-						if ($debug);
-					$host = "";
-					last;
-				}
+			if ( defined $toskip && ($host=~/$toskip/o || $ip=~/$toskip/o) ) {
+				print "(debug) Skipping $host/$ip, matched toskip regexp ($toskip).\n" if ($debug);
+				next;
 			}
-
-			next unless ( $host );
 
 			# do network mapping
-			my($ipm) = &GenMask($ip);
-			foreach $i ( keys %netmap ) {
-				my($newnet,$netm,$mask) = @{$netmap{$i}};
+			if ( keys %netmap ) {
+				my($ipm) = &GenMask($ip);
+				foreach $i ( keys %netmap ) {
+					my($newnet,$netm,$mask) = @{$netmap{$i}};
 	
-				unless ( ($ipm^$netm) & $mask ) { # 0 if in match made
-					my($ptr) = ( $ip =~ /\.(\d+)$/ );
-					print "(debug) $ip mapping to $newnet.$ptr ...\n" if ( $debug );
-					$ip = "$newnet.$ptr";
-					last; # IPs should only match once ...
+					unless ( ($ipm^$netm) & $mask ) { # 0 if in match made
+						my($ptr) = ( $ip =~ /\.(\d+)$/ );
+						print "(debug) $ip mapping to $newnet.$ptr ...\n" if ( $debug );
+						$ip = "$newnet.$ptr";
+						last; # IPs should only match once ...
+					}
 				}
 			}
 
-			# skip hosts in networks we don't run!
-			my($network) = &IPinNetwork($ip,%networks);
-			unless ( $network ) {
+			# figure out which network this IP is in ...
+			my($network) = &IPinNetwork($ip,\%networks);
+			if ( $network == 0 ) {
 				print "(debug) Not keeping $host = $ip, not in any network.\n"
 					if ($debug);
 				next;
@@ -456,59 +448,49 @@ READIN: {
 			print "(debug) Keeping $host = $ip, in network $network.\n"
 				if ( $debug );
 
-			if ( $mips{$ip} ) { # IP already has mapping!
-				print "The entry in \"$map\" for \"$host\" duplicated ",
-					"\"$mips{$ip}\".\nKeeping the \"$mips{$ip} A $ip\" entry.\n"
+			# the original may or may not be all numeric (maps)
+			my($orig,$ptr) = ( $ip =~ /^(.+)\.(\d+)$/ );
+			if ( exists($mips{$network}->{$orig}->{$ptr}) ) { # IP already has mapping!
+				print "The entry in \"$map\" for \"$host\" duplicated \"",$mips{$network}->{$orig}->{$ptr},"\".\nKeeping the original entry.\n"
 						unless ( $quiet );
 				next;
 			}
 
-			$mips{$ip} = $host; # Map IP to host ...
-
-			# IP without network prepended (48.7 not 199.172.48.7)
-			my($ptr) = ( $ip =~ /^$network\.(.+)$/ );
-			push(@{$ptrs{$network}},$ptr);
+			# Network/origin/ptr = host
+			$mips{$network}->{$orig}->{$ptr} = $host;
 		}
-		close(IN);
 	}
 }
 
 # Check each output zone file to see if it needs changing
-MD5: {
+HASH: {
 	while ( my($net,$file) = each %networks ) {
-		my($nlorigin,$lorigin,$ptr);
+		my($orig,$ptr);
 		my($map) = $maps{$net};
 
-		@{$ptrs{$net}} = () unless ( defined $ptrs{$net} ); # no IPs in net!
-		foreach $ptr ( sort IPSort @{$ptrs{$net}} ) { # ptr = non-net IP #
-			my($a) = "$net.$ptr"; # $a = full IP address
+		%{$mips{$net}} = () unless ( defined $mips{$net} ); # no IPs in net!
+		# Stole this from http://www.sysarch.com/perl/sort_paper.html
+		foreach $orig ( sort { pack('C*' => split(/\./,$a)) cmp
+			      	       pack('C*' => split(/\./,$b))
 
-			if ( $ptr =~ /\./ ) {	# we should use $ORIGIN statements! (easier reading)
-				my($orig);
-				($orig,$ptr) = ( $ptr =~ /^([0-9\.]+)\.(\d+)$/ );
-				if ( $orig ne $nlorigin ) { # if new origin (between net & host ptr)
-					$nlorigin = $orig; # prepare for fast new origin check
-
-					# prepare the new full origin
-					$lorigin = join(".", reverse(split(/\./,$orig)),
-						reverse(split(/\./,$net)),"in-addr","arpa","");
-
-					$map.= "\$ORIGIN $lorigin\n"; # append $ORIGIN to map
-				}
+				} keys %{$mips{$net}} ) {
+			$map.= "\$ORIGIN ".join(".",reverse(split(/\./,$orig))).".in-addr.arpa.\n"; # append $ORIGIN to map
+			my $ptrs = $mips{$net}->{$orig};
+			foreach $ptr ( sort { $a <=> $b } keys %{$ptrs} ) {
+				# Add PTR line to map
+				$map.= "$ptr\tPTR\t".$ptrs->{$ptr}."\n";
 			}
 
-			# Add PTR line to map
-			$map.= sprintf "%-3s\tPTR\t%s\n", $ptr, $mips{$a};
 		}
 
-		$md5->reset();
-		my($hv) = $md5->hexhash($map); # generate MD5 for new map
+		my($hv) = Do_Hash($whichhash,$map); # generate hash value for new map
+		print "(debug) Generated hash values for $file (old/new): $hash{$net}/$hv.\n" if ( $debug );
 
 		if ( $hv ne $hash{$net} ) { # maps are different!
 			print "(debug) File $file needs to be updated.\n" if ( $debug );
 
 			my($fserial);
-			my($use) =	$numordate{$dfile{$file}} ||
+			my($use) =	$numordate{$files{$file}} ||
 					$numordate{"default"} ||
 					"date";
 
@@ -528,7 +510,7 @@ MD5: {
 				}
 			}	
 			elsif ( $use eq "number" ) {
-				$fserial = sprintf("%010u",$serial{$file} + 1);
+				$fserial = $serial{$file} + 1;
 			}
 			else {
 				die qq{(fatal) Unknown serial type "$use".};
@@ -561,48 +543,35 @@ exit 0;
 # note: this routine only checks on byte boundaries
 # Return 0 if not, network number if yes.
 #
+{ my %cache = ();
 sub IPinNetwork {
-	my($ip,%networks)=@_; # IP to check, hash of networks to check
+	my($ip,$networks)=@_; # IP to check, hash of networks to check
+
+	my($orig) = ( $ip =~ /^(.+)\.\d+$/ );
+	return $cache{$orig} if exists $cache{$orig};
 
 	do { # matches most specific network first (10.0.49 before 10 ...)
 		$ip =~ s/\.[^\.]+$//; # remove last octet (host #)
-		return $ip if ( $networks{$ip} );
+		if ( exists $networks->{$ip} ) {
+			$cache{$orig} = $ip;
+			return $ip;
+		}
 	} while ( $ip =~ /\./ ); # while there's a period in the IP
 
 	return 0;
 }
-
-# Sorts IP Addresses numerically!
-sub IPSort {
-	my(@f) = split(/\./,$a);
-	my(@s) = split(/\./,$b);
-	my($i) = 0;
-
-	# $#f and $#s should be equal ... don't confuse it.
-	$i++ while( $i<$#f && $f[$i]==$s[$i] );
-	return ( $f[$i] <=> $s[$i] );
 }
 
 # Generate a bitmask from an IP/Network/bit count.
 # Returns array of bitmasks from array of input values.
 #
 sub GenMask {
-	my(@marray,$val);
-
-	foreach $val ( @_ ) {
-		if ( $val =~ /^\d+$/ ) { # /27 ...
-			push(@marray, ~(2**(32-$val)-1));
-		}
-		else { # 255.255.255.224 ...
-			my($mask);
-			foreach (split(/\./,$val)) {
-				$mask = ($mask<<8) + $_;
-			}
-			push(@marray,$mask);
-		}
+	if ( $_[0] =~ /^\d+$/ ) { # /27 ...
+		return ~(2**(32-$_[0])-1);
 	}
-
-	return @marray;
+	else { # 255.255.255.224 ...
+		return unpack("N",pack('C4'=>split(/\./,$_[0])));
+	}
 }
 
 # Parse the directive statements and plop the info in the right place.
@@ -614,15 +583,13 @@ sub Directives {
 	$type = lc $type;
 	if ( $type eq "map" ) {
 		my($nm,$nn) = split(/\s+/, $vals);
-		@{$netmap{$nm}}= ($nn,&GenMask(split(/\//,$nm)));
+		@{$netmap{$nm}}= ($nn,map { &GenMask($_) } split(/\//,$nm));
 	}
 	elsif ( $type eq "skip" ) {
 		push(@toskip,$vals);
 	}
 	elsif ( $type eq "skipzone" ) {
-		foreach ( split(/\s+/,$vals) ) {
-			$zonetoskip{$_}++;
-		}
+		map { $zonetoskip{lc $_}=1 } split(/\s+/,$vals);
 	}
 	elsif ( $type eq "serialt" ) {
 		# $vals = "default|zone number|date"
@@ -669,7 +636,7 @@ sub Handle_GENERATE {
 	my($START,$STOP,$SKIP) = ($RANGE=~m{^(\d+)-(\d+)(?:/(\d+))?$});
 	if ( !defined($SKIP) || ( defined($SKIP) && $SKIP<1 ) ) {
 		warn qq{(warn) Invalid \$GENERATE line (bad skip): "$GENERATE" (set to 1)\n}
-			if ( defined($SKIP) && $SKIP<1 );
+			if ( defined $SKIP );
 		$SKIP=1; # skip defaults to 1 if not specified.
 	}
 
@@ -685,28 +652,28 @@ sub Handle_GENERATE {
 		s@\$(?:{([^}]+)})?@
 			my($o,$w,$r) = split(/,/,$1);
 	
-			if ( !defined($o) || ( defined($o) && $o!~/^-?\d+$/ ) ) {
+			if ( !defined($o) || $o!~/^-?\d+$/ ) {
 				warn qq{(warn) Invalid \$GENERATE line (bad offset): "$GENERATE" (set to 0)\n}
-					if ( defined($o) && $o!~/^-?\d+$/ );
+					if ( defined($o) );
 				
 				$o = 0;
 			}
 	
-			if ( !defined($w) || ( defined($w) && $w<1 ) ) {
+			if ( !defined($w) || $w<1 ) {
 				warn qq{(warn) Invalid \$GENERATE line (bad width): "$GENERATE" (set to 1)\n}
-					if ( defined($w) && $w<1 );
+					if ( defined($w) );
 				
 				$w = 1;
 			}
 	
-			if ( !defined($r) || (defined($r) && $r !~ /^[doxX]$/) ) {
+			if ( !defined($r) || $r !~ /^[doxX]$/ ) {
 				warn qq{(warn) Invalid \$GENERATE line (bad radix): "$GENERATE" (set to d)\n}
-					if ( defined($r) && $r !~ /^[doxX]$/ );
+					if ( defined($r) );
 				
 				$r = "d";
 			}
 	
-			sprintf "\${$o,$w,$r}";
+			"\${$o,$w,$r}";
 		@ge;
 	}
 	
@@ -723,7 +690,7 @@ sub Handle_GENERATE {
 
 		my($l,$r) = split;
 
-		if ( $ORIGIN ) {
+		if ( $ORIGIN ne "" ) {
 			# The right side of an A or AAAA record is an address...
 			foreach ( ($TYPE=~/^A/)?$l:($l,$r) ) {
 				$_ .= ".$ORIGIN" unless ( /\.$/ );
@@ -734,6 +701,102 @@ sub Handle_GENERATE {
 	}
 
 	return @toreturn;
+}
+
+# This section of code takes in a line from the named configuration file and
+# puts the info in the appropriate spots.  This used to be in both the
+# named.conf and named.boot handlers in the main set of code, but the code
+# was exactly the same, so I put it here for maintainability.
+#
+sub Handle_Domain {
+	my($i,$type,$domain,$file,$files) = @_;
+	$domain = lc $domain;
+
+	if ( $zonetoskip{$domain} ) {
+		print "(debug) Skipping zone $domain, matched skipzone.\n" if ($debug);
+		next;
+	}
+
+	unless ( $domain && $file ) {
+		warn qq{(warn) Error with line "$i" in "$bootfile".\n};
+		next;
+	}
+
+	$file = "$nameddir/$file" if ( $file !~ m!^/! );
+	$file = &Handle_Path($rootdir,$file);
+
+	# The file is already being used!
+	die qq#(fatal) The zone file "$file" is being used by two zones!  Error in config file!\n($files->{$file} and $domain ...)\n# if ( $files->{$file} );
+
+	$files->{$file} = $domain;
+
+	if ( $domain =~ /\.arpa$/i ) { # network
+		$domain =~ s/\.in-addr\.arpa$//i; # just the net ...
+		if ( $domain =~ /127$/ ) { # silently skip 127.*
+			print "(debug) Skipping $file for the 127.* network.\n"
+				if ( $debug );
+			next;
+		}
+		$domain = join( ".", reverse(split(/\./,$domain)) );
+		$networks{$domain} = $file;
+		print qq{(debug) Network "$domain", File "$file", Type "$type".\n} if ( $debug );
+	}
+	else { # "normal" domain, read in domains in order presented.
+		push(@domains,"$domain:$file");
+		print qq{(debug) Domain "$domain", File "$file", Type "$type".\n} if ( $debug );
+	}
+}
+
+# Trim down a path to a standardized form.
+# ie: /path/../foo -> /foo
+#
+sub FixPath {
+	$_ = $_[0];
+
+	tr#/#/#s;		# Remove multiple /'s
+	s#/\./#/#g;		# /./ -> /
+	s#/\.$##;		# remove /.$
+	s#(^|/)[^/]*/\.\./#/#g;	# /[^/]/../ -> /
+	s#(^|/)[^/]*/\.\.$##g;	# remove /..$
+	s#^\./##;		# remove ^./
+
+	return $_;
+}
+
+# Take a given path, handle a possibly different root directory, then return
+# it.
+#
+sub Handle_Path {
+	my($rootdir,$orig) = @_;
+
+	my($new) = &FixPath($orig);
+
+	if ( $new=~m#^/?\.\.(/|$)# ) {
+		warn qq{(warn) Path "$_" tries to go beyond root directory ("$new").  Removing.\n} unless ( $quiet );
+		$new=~s#^/?\.\.(/|$)##;
+	}
+
+	$new = &FixPath("$rootdir/$new");
+	if ( $orig ne $new ) {
+		print qq{(debug) Path changed from "$orig" to "$new".\n} if ( $debug );
+		$orig = $new;
+	}
+
+	return $orig;
+}
+
+sub Do_Hash {
+	my($hashfunc) = @_;
+
+	if ( $hashfunc == 1 ) { # MD5
+		return md5_hex($_[1]); # generate MD5 for text
+	}
+	elsif ( $hashfunc == 0 ) { # Built-in (32bit checksum)
+		return unpack("%32C*",$_[1])%65535; # generate 32-bit checksum for text
+	}
+	else { # Who the heck are you anyway?
+		die qq{(fatal) Unknown hash function "$hashfunc".\n};
+	}
 }
 
 __END__
@@ -770,6 +833,13 @@ network is not auto-generated due to the "1 IN PTR localhost." issue.
                  have the reverse maps generated, but want
                  to check their contents before use.
 
+-hash <hash>     Allows you to override the default hash
+                 function.  (used to determine if a map
+                 has changed)  mkrdns will try to use
+                 MD5 (1) if the Digest::MD5 Perl module is
+                 installed.  Otherwise, it'll default to
+                 32-bit checksums (0).
+
 -help            The help screen.
 
 -quiet           Turn off warning messages (multiple A
@@ -777,11 +847,20 @@ network is not auto-generated due to the "1 IN PTR localhost." issue.
                  but you probably want to check on what
                  the warnings report. 
 
+-rootdir <path>  Specify the path to the root directory
+                 that named will be running in.  This
+                 will handle anyone using a chrooted
+                 environment for named.  Everything except
+                 the configuration file is assumed to be
+                 under the new root.
+
+-version         Show mkrdns version information.
+
 =head1 CONFIGURATION FILE
 
 mkrdns reads the standard BIND configuration files I<named.boot> and
 I<named.conf>.  If you don't specify the full path to the file on the
-command line, mkrdns assumes that one (or both) will exist in /etc/bind and
+command line, mkrdns assumes that one (or both) will exist in /etc and
 will search for them.  If none are found, the program exits.  If one
 is found, it is used.  If both are found, named.conf is used.
 
@@ -791,17 +870,16 @@ Directives are new in mkrdns since version 1.2.  Think of directives
 as configuration options for mkrdns which are simply comments to BIND.
 The current directives are B<map>, B<serialt>, B<skip>, and B<skipzone>.
 
-Map allows you to map IN A hosts to another network.  This was
-designed in for the purpose of handling DNS for a subnet of a class C
-network which you do not control.  (See the DNS & BIND O'Reilly and
-Associates book, 3rd Ed., pg. 215-218) Assume that you have
-10.4.4.32/27 (ie: you have the 32 IPs from 10.4.4.32 to 10.4.4.63 ...)
-You want to do reverse mappings for those IPs.  How do you do it?
-You've subnetted on a non-octet boundary.  The solution is to become
-the master for another network (such as 32.4.4.10.in-addr.arpa. or
-32-63.4.4.10.in-addr.arpa.), and CNAME the correct reverse pointers to
-the ones you're in charge of.  It's pretty funky.  The format for the
-directive is:
+B<Map> allows you to map hosts to another network.  This was designed in
+for the purpose of handling DNS for a subnet of a class C network which
+you do not control.  (See the DNS & BIND O'Reilly and Associates book,
+3rd Ed., pg. 215-218) Assume that you have 10.4.4.32/27 (ie: you have
+the 32 IPs from 10.4.4.32 to 10.4.4.63 ...)  You want to do reverse
+mappings for those IPs, but you don't control 4.4.10.in-addr.arpa.
+How do you do it?  The solution is to become the master for another
+zone (such as 32.4.4.10.in-addr.arpa. or 32-63.4.4.10.in-addr.arpa.),
+and CNAME the correct reverse pointers to the ones you're in charge of.
+The format for the directive is:
    map <network/mask> <new network>
 
 Ex: map 10.4.4.32/27 10.4.4.32-63
@@ -809,12 +887,13 @@ Ex: map 10.4.4.32/27 10.4.4.32-63
 This maps all hosts between 10.4.4.32 and 10.4.4.63 to 10.4.4.32-63.32
 to 10.4.4.32-63.63.
 
-Serialt will change mkrdns's behavior with the serial number for certain
-zones.  By default (and in all pre-1.6 versions of mkrdns), the serial number
-is assumed to be in I<date> format (YYYYMMDDVV, year/month/day/version).  As
-of v1.6 you can force mkrdns to treat it as a regular number instead.  This
-allows for more than 100 zone changes a day, and has a bit more flexibility
-depending on the environment.  The format for the directive is:
+B<Serialt> will change mkrdns's behavior with the serial number for
+certain zones.	By default (and in all pre-1.6 versions of mkrdns),
+the serial number is assumed to be in I<date> format (YYYYMMDDVV,
+year/month/day/version).  As of v1.6 you can force mkrdns to treat it as
+a regular number instead.  This allows for more than 100 zone changes
+a day, and has a bit more flexibility depending on the environment.
+The format for the directive is:
 	serialt <zone> <format>
 
 <zone> is either "default" or the actual zone (ie: 0.0.0.10.in-addr.arpa).
@@ -822,13 +901,12 @@ depending on the environment.  The format for the directive is:
 
 Ex: serialt 1.168.192.in-addr.arpa number
 
-Skip forces mkrdns to ignore certain hosts/IPs via regular
-expression. The concept is that there are some IN A records that you
-would like to skip and not create a reverse entry.  Skip allows
-this. (for instance, "foo IN A 10.4.4.32" and "mail IN A 10.4.4.32"
-both exist, but you want to force foo as the reverse lookup and ignore
-mail.  The following example can do this for you.)
-Format:
+B<Skip> forces mkrdns to ignore certain hosts/IPs via regular
+expression. The concept is that there are some IN A records that
+you would like to skip and not create a reverse entry.  Skip allows
+this. (for instance, "foo IN A 10.4.4.32" and "mail IN A 10.4.4.32" both
+exist, but you want to force foo as the reverse lookup and ignore mail.
+The following example can do this for you.)  Format:
    skip <regular expression>
 
 Ex: skip ^mail
@@ -837,15 +915,15 @@ This will skip any host (or IP) that matches the "^mail" regular
 expression.  The host is the FQDN, and the IP is before mapping (see
 above).
 
-Skipzone forces mkrdns to ignore certain zones while processing the
+B<Skipzone> forces mkrdns to ignore certain zones while processing the
 named configuration file.  A possible use for this is where you have
-"bar.com" and "bar.net", and both of them should have the same host
-info (ie: foo.bar.com and foo.bar.net both have the same records.)  You
-want "bar.com" to be the reverse lookup for the IPs used.  So set the
-zone file setting to the same file (bar.zone), and then add "skipzone
-bar.net".  B<NOTE:>  The skipzone argument must match EXACTLY with the
-zone name in the config file.  B<NOTE:> You can specify multiple zones
-in the same "skipzone" statement. (ie: "skipzone foo.com bar.com")
+"bar.com" and "bar.net", and both of them should have the same host info
+(ie: foo.bar.com and foo.bar.net both have the same records.)  You want
+"bar.com" to be the reverse lookup for the IPs used.  So set the zone file
+setting to the same file (bar.zone), and then add "skipzone bar.net".
+B<NOTE:>  The skipzone argument must match EXACTLY with the zone name
+in the config file.  B<NOTE:> You can specify multiple zones in the same
+"skipzone" statement. (ie: "skipzone foo.com bar.com")
 
 The format of a directive differs (sorry) between named.conf and
 named.boot.  UNIX-style comments (the hash mark then the comment) are
@@ -904,9 +982,6 @@ sees as the one used for the PTR record.  A warning is printed for any
 additional entries.  (While the RFCs don't prohibit multiple PTR records
 for the same IP, I have yet to find anyone who can give me a good reason
 to do it.)
-
-- requires the MD5 library to be installed (see your local favorite CPAN
-mirror) to handle if reverse maps have changed.
 
 - map serial numbers default to be in YYYYMMDDVV format.  (YYYY = year,
 MM = month, DD = day, VV = version (00-99).  This script will convert

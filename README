@@ -6,8 +6,11 @@ files under CVS control, and possibly automatically updating reverse
 zones. The main part of this package is called "dns-update", and it is
 written by yours truly, Tommi Virtanen <tv@havoc.fi>. dns-update can
 use mkrdns to create the reverse zones. mkrdns was written by Theo Van
-Dinter <tvd@chrysalis.com>, <felicity@kluge.net>. Both of the are
-licensed under the GNU Generic Public License.
+Dinter <tvd@chrysalis.com>, <felicity@kluge.net>. The mkrdns homepage
+is at http://www.mkrdns.org/
+
+Both dnscvsutil and mkrdns are licensed under the GNU Generic Public
+License.
 
   There are no proper documents currently (help appreciated!), but
 here's a quick rundown on the setup:

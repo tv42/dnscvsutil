@@ -1,3 +1,20 @@
+dnscvsutil (0.10) unstable; urgency=low
+
+  * mkrdns: Upgrade to v2.1
+  * mkrdns: Default to MD5, we depend on it anyway.
+  * mkrdns: Make sure /etc/bind is searched first.
+  * dns-update, mkrdns: Make sure we use Digest::MD5 instead of MD5.
+    Closes: #110290.
+  * debian/control: Depend on bind | bind9. Closes: #98934.
+  * README: Mention www.mkrdns.org
+  * debian/changelog: Cleanup local vars.
+  * mkrdns: Fix perl path.
+  * debian/copyright: Use explicit plural to avoid Lintian bitching.
+  * debian/control: Upgraded standards-version to 3.5.6
+  * debian/rules: Make sure conffiles gets mode 0644.
+
+ -- Tommi Virtanen <tv@debian.org>  Tue, 28 Aug 2001 16:25:33 +0300
+
 dnscvsutil (0.9) unstable; urgency=low
 
   * Write generated domain files with temporary names and rename
@@ -77,6 +94,4 @@ dnscvsutil (0.1) unstable; urgency=low
 
  -- Tommi Virtanen <tv@debian.org>  Wed, 23 Jun 1999 11:35:02 +1000
 
-Local variables:
-mode: debian-changelog
-End:
+

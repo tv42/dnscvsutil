@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 #
-# mkrdns - Make Reverse DNS - Version 1.4
+# mkrdns - Make Reverse DNS - Version 1.5
 #
-# By: Theo Van Dinter (tvd@chrysalis.com, felicity@kluge.net) (c) 1998-1999
-# Revision Info: $Id: mkrdns,v 1.15 1999/06/03 19:30:58 tvd Stab $
+# By: Theo Van Dinter (felicity@kluge.net, tvd@colltech.com) (c) 1998-2000
+# Revision Info: $Id: mkrdns,v 1.18 2000/01/06 23:09:49 felicity Exp $
 #
 # The goal of this script is to automatically generate new reverse IP
 # mapping zone files for DNS/BIND.  It's been done before, but there
@@ -41,48 +41,55 @@ my($version) = 0; # show version information
 
 # Program needed variables
 my($i,@domains,%networks,%maps,%serial,%mips,%hash,%ptrs,%netmap,@toskip);
-my($nameddir);
+my(%zonetoskip,$nameddir);
+my($pversion) = "1.5";
 
 # Get commandline parameters
 $i=&GetOptions("debug" => \$debug,
-					"help" => \$help,
-					"extension=s" => \$ext,
-					"quiet" => \$quiet,
-					"version" => \$version,
-					"<>" => sub{$bootfile = $_[0]},	# any "non-option" is
-																# config (boot) file
-					);
+			"help" => \$help,
+			"extension=s" => \$ext,
+			"quiet" => \$quiet,
+			"version" => \$version,
+			"<>" => sub{$bootfile = $_[0]},	# any "non-option" is
+							# config (boot) file
+		);
 
-if ( $version ) {
+if ( $version || !$i || $help ) {
 	print "
-mkrdns v1.4 (c) 1998-1999
-By: Theo Van Dinter (tvd\@chrysalis.com, felicity\@kluge.net)
+mkrdns v$pversion (c) 1998-2000
+By: Theo Van Dinter (felicity\@kluge.net, tvd\@colltech.com)
 
 ";
-	exit 0;
-}
 
-if ( !$i || $help ) { # print help screen if requested or error on params.
-	print "
-Usage: $0 [options] [configuration file]
+	print "Usage: $0 [options] [configuration file]
 
 Options:
 -debug\t\tTurn on debugging (warning, this prints a *LOT* of info)
 -extension\tAppend given extension to output files
 -help\t\tShow this help screen
 -quiet\t\tTurn off warning messages (multiple A records -> IP, etc.)
+-version\tShow the mkrdns version information
 
 Configuration file is the full path to either named.boot or named.conf.
 
-";
+" unless ( $version );
 	exit 0;
 }
 
-print "Debugging turned on.
-Help       = $help
-Extension  = $ext
-Quiet Mode = $quiet
-" if ( $debug );
+if ( $ext =~ /^\./ ) { # Remove the '.'s from the start of the extention ...
+	$ext =~ s/^\.+//;
+	warn "(warn) Extension started with '.' -- removed.  Extention now '$ext'.\n";
+}
+
+if ( $debug ) {
+        print "Debugging turned on.\n";
+        print "Version     = $pversion\n";
+        print 'C. Revision = $Id: mkrdns,v 1.18 2000/01/06 23:09:49 felicity Exp $',"\n";
+        print "Help        = $help\n";
+        print "Extension   = $ext\n" if ( $ext );
+        print "Quiet Mode  = $quiet\n";
+        print "\n";
+}
 
 # If bootfile wasn't specified, try to find one in /etc...
 unless ( $bootfile ) {
@@ -192,6 +199,11 @@ READCONF: {
 				elsif ( $type =~ /^skip$/i ) {
 					push(@toskip,$vals);
 				}
+				elsif ( $type =~ /^skipzone$/i ) {
+					foreach ( split(/\s+/,$vals) ) {
+						$zonetoskip{$_}++;
+					}
+				}
 				else {
 					die "(fatal) mkrdns directive type \"$type\" is unknown.";
 				}
@@ -202,6 +214,10 @@ READCONF: {
 
 				# Skip IP domains we don't control.
 				next if ( $type=~/^secondary$/i && $domain=~/\.arpa$/i );
+				if ( $zonetoskip{$domain} ) {
+					print "(debug) Skipping zone $domain, matched skipzone.\n" if ($debug);
+					next;
+				}
 
 				unless ( $domain && $file ) {
 					warn "(warn) Error with line \"$i\" in \"$bootfile\".\n";
@@ -240,6 +256,7 @@ READCONF: {
 	}
 	elsif ( $type eq "conf" ) { # parse named.conf
 		my($directives) = ($config=~m!^/\*\s*mkrdns(.+?)\*/!msi);
+
 		if ( $directives ) { # mkrdns directive
 			foreach $i ( split(/\n/, $directives) ) {
 				$i=~s/\#.+$//;
@@ -257,6 +274,11 @@ READCONF: {
 				}
 				elsif ( $type =~ /^skip$/i ) {
 					push(@toskip,$vals);
+				}
+				elsif ( $type =~ /^skipzone$/i ) {
+					foreach ( split(/\s+/,$vals) ) {
+						$zonetoskip{$_}++;
+					}
 				}
 				else {
 					die "(fatal) mkrdns directive type \"$type\" is unknown.";
@@ -277,6 +299,11 @@ READCONF: {
 
 			# Skip IP domains we don't control.
 			next if ( $type=~/^slave$/i && $domain=~/\.arpa$/i );
+
+			if ( $zonetoskip{$domain} ) {
+				print "(debug) Skipping zone $domain, matched skipzone.\n" if ($debug);
+				next;
+			}
 
 			# The file is already being used!
 			die "(fatal) The zone file \"$file\" is being used by two zones!  ",
@@ -530,7 +557,7 @@ MD5: {
 			}
 
 			print "(debug) Changing serial number for $file from",
-				"$serial{$file} to $fserial\n" if ( $debug );
+				" $serial{$file} to $fserial\n" if ( $debug );
 
 			$map =~ s/(\(.+?)$serial{$file}/$1$fserial/s;
 
@@ -650,7 +677,7 @@ is found, it is used.  If both are found, named.conf is used.
 
 Directives are new in mkrdns since version 1.2.  Think of directives
 as configuration options for mkrdns which are simply comments to BIND.
-The current directives are B<map> and B<skip>.
+The current directives are B<map>, B<skip>, and B<skipzone>.
 
 Map allows you to map IN A hosts to another network.  This was
 designed in for the purpose of handling DNS for a subnet of a class C
@@ -684,6 +711,16 @@ Ex: skip ^mail
 This will skip any host (or IP) that matches the "^mail" regular
 expression.  The host is the FQDN, and the IP is before mapping (see
 above).
+
+Skipzone forces mkrdns to ignore certain zones while processing the
+named configuration file.  A possible use for this is where you have
+"bar.com" and "bar.net", and both of them should have the same host
+info (ie: foo.bar.com and foo.bar.net both have the same records.)  You
+want "bar.com" to be the reverse lookup for the IPs used.  So set the
+zone file setting to the same file (bar.zone), and then add "skipzone
+bar.net".  B<NOTE:>  The skipzone argument must match EXACTLY with the
+zone name in the config file.  B<NOTE:> You can specify multiple zones
+in the same "skipzone" statement. (ie: "skipzone foo.com bar.com")
 
 The format of a directive differs (sorry) between named.conf and
 named.boot.  UNIX-style comments (the hash mark then the comment) are
@@ -758,6 +795,6 @@ serial number reaches 4294967295 (max value), but that's another story.
 
 =head1 AUTHOR
 
-Theo Van Dinter <tvd@chrysalis.com> <tvd@kluge.net>
+Theo Van Dinter <felicity@kluge.net> <tvd@colltech.com>
 
 =cut

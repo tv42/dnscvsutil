@@ -1,3 +1,9 @@
+dnscvsutil (0.6) unstable; urgency=low
+
+  * Upgraded mkrdns to version 1.5
+
+ -- Tommi Virtanen <tv@debian.org>  Fri,  7 Jan 2000 18:03:00 +0200
+
 dnscvsutil (0.5) unstable; urgency=low
 
   * Corrected the last references to /var/state in postrm.

@@ -15,7 +15,6 @@ if [ "$1" = "configure" ]; then
         chmod g+ws "$STATEDIR/cvs" \
             "$STATEDIR/cvs/CVSROOT" \
             "$STATEDIR/cvs/domains" \
-            "$STATEDIR/cvs/domains/CVS" \
             "$STATEDIR/domains" \
             "$STATEDIR/compiled"
     elif [ "$(cat $STATEDIR/domains/CVS/Root)" \

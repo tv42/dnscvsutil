@@ -7,7 +7,7 @@ case "$1" in
         purge)
                 [ -d "$STATEDIR/domains" ] && rm -rf "$STATEDIR/domains"
                 [ -d "$STATEDIR/compiled" ] && rm -rf "$STATEDIR/compiled"
-		chown -R root.root /var/state/dnscvsutil
+		[ -d "$STATEDIR" ] && chown -R root.root /var/lib/dnscvsutil
                 groupdel dnsadmin
                 ;;
         *)

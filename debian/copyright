@@ -1,0 +1,57 @@
+This package was debianized by Tommi Virtanen <tv@hq.yok.utu.fi> on
+Tue, 13 Jul 1999 01:19:22 +0300.
+
+It was downloaded from http://hq.yok.utu.fi/sw/dnscvsutil/
+
+Upstream Author(s): Tommi Virtanen <tv@havoc.fi>
+                    Theo Van Dinter <tvd@chrysalis.com>,
+                                    <felicity@kluge.net>
+
+Copyright:
+
+#   dns-update - manage DNS zone files under CVS
+#   Copyright (C) 1999  Tommi Virtanen <tv@havoc.fi>
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# mkrdns - Make Reverse DNS - Version 1.4
+#
+# By: Theo Van Dinter (tvd@chrysalis.com, felicity@kluge.net) (c) 1998-1999
+# Revision Info: $Id: mkrdns,v 1.15 1999/06/03 19:30:58 tvd Stab $
+#
+# The goal of this script is to automatically generate new reverse IP
+# mapping zone files for DNS/BIND.  It's been done before, but there
+# always seems to be something which makes it not workable in my
+# environment.  This script should hopefully fix that.
+#
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in /usr/doc/copyright/GPL'.

@@ -1,0 +1,197 @@
+#!/usr/bin/perl -w
+#
+#   dns-update - manage DNS zone files under CVS
+#   Copyright (C) 1999  Tommi Virtanen <tv@havoc.fi>
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use strict;
+use vars qw($BASEDIR $FROM $PRIMARY $RUNAFTER $TO);
+use File::Find;
+use POSIX qw(strftime);
+use MD5;
+
+sub fail(@) { die "$0: @_\n" }
+
+do '/etc/dns-update.conf' or fail "config error; $@\n";
+chdir($FROM) or fail "Cannot chdir to $FROM: $!";
+system('/usr/bin/cvs', '-q', 'update', '-Pd') == 0
+  or fail "CVS update failed: $!";
+open PRIMARY, "> $PRIMARY.tmp"
+  or fail "Cannot open $PRIMARY.tmp for writing: $!";
+print PRIMARY "// This file is auto-generated. Do not edit!\n"
+  or fail "Cannot write to $PRIMARY.tmp: $!";
+find(\&wanted, '.');
+close PRIMARY or fail "Closing $PRIMARY.tmp failed: $!";
+rename "$PRIMARY.tmp", $PRIMARY
+  or fail "Renaming $PRIMARY.tmp to $PRIMARY failed: $!";
+
+if (defined $RUNAFTER and $RUNAFTER ne '') {
+  exec $RUNAFTER or fail "Executing post-run commands failed: $!";
+}
+exit(0);
+
+sub wanted {
+  return if $File::Find::dir =~ m{/CVS/};
+  return unless -f $_;
+  return unless /\.domain$/;
+  
+  my $file = $File::Find::name;
+  $file =~ s{^\./}{};
+  $file =~ s{\.domain$}{};
+  my $zone = join '.', reverse split '/', $file;
+  my $tofile = "$TO/$file.dom";
+  -d "$TO/$File::Find::dir" or mkdir "$TO/$File::Find::dir", 0755
+    or fail "Cannot create directory $TO/$File::Find::dir";
+  convert($zone, "$FROM/$file.domain", $tofile);
+  print PRIMARY <<EOF
+
+zone "$zone" {
+	type master;
+	file "$tofile";
+};
+EOF
+};
+
+sub today() {
+  return strftime "%Y%m%d", localtime();
+}
+
+sub newserial($;) {
+  my ($file) = @_;
+  my $serial;
+  if (-f $file) {
+    open SERIAL, "< $file" 
+      or fail "Cannot open $file for reading: $!";
+    $serial = <SERIAL>;
+    defined $serial or fail "Cannot read serial $file: $!";
+    close SERIAL;
+    chomp $serial;
+    # Here's a Y3K problem:		( ;) )
+    my ($d,$n) = ($serial =~ /^([12][0-9][0-9][0-9]		# year
+                                (?:0[1-9]|1[0-2])		# month
+                                (?:0[1-9]|[12][0-9]|3[01]))	# day
+                                ([0-9][0-9])			# serial
+                  $/x);
+    defined $d and defined $n or fail "Invalid serial: $file is $serial";
+    if ($d eq today()) {
+      $n++;
+      $n<100 or fail "Too big serial in $file";
+      $serial = $d . $n;
+    }
+    else { $serial = today() . '01' }
+  }
+  else { $serial = today() . '01' }
+  open SERIAL, "> $file" or fail "Cannot open $file for reading: $!";
+  print SERIAL "$serial\n" or fail "Cannot write to $file: $!";
+  close SERIAL or fail "Closing $file failed: $!";
+  return $serial;
+}
+
+sub md5_modified($*) {
+  my ($sumfile, $fh) = @_;
+  my $oldsum;
+  if (-e $sumfile) {
+    open OLD, "< $sumfile" or fail "Cannot open $sumfile for reading: $!";
+    $oldsum = <OLD>;
+    close OLD;
+    defined $oldsum or fail "No md5sum read from file $sumfile";
+    chomp $oldsum;
+    $oldsum =~ /^[0-9a-z]{32}$/ or fail "Bad md5sum from file $sumfile";
+  } else {
+    $oldsum = '';
+  }
+  my $md5 = new MD5;
+  $md5->addfile($fh);
+  seek($fh, 0, 0) or fail "Cannot rewind: $!";
+  my $newsum = $md5->hexdigest();
+  if ($newsum eq $oldsum) { return 0 }
+  else {
+    open SUM, "> $sumfile" or fail "Cannot open $sumfile for writing: $!";
+    print SUM "$newsum\n" or fail "Cannot write to $sumfile: $!";
+    close SUM or fail "Closing $sumfile failed: $!";
+    return 1;
+  }
+}
+
+sub convert($$$;) {
+  my ($name, $from, $to) = @_;
+  open(IN, "< $from") or fail "Cannot open $from for reading: $!";
+  return 0 
+    unless md5_modified("$to.md5sum", *IN{IO})
+      or grep {$_ eq '-f'} @ARGV;
+  
+  my $serial = newserial "$to.serial";
+  open(OUT, "> $to") or fail "Cannot open $to for writing: $!";
+  print OUT ";;; This file is auto-generated. Do not edit!\n"
+    or fail "Cannot write to $to: $!";
+  local $_;
+  while(<IN>) {
+    if(/^!template/i) {
+      print OUT template($name, $serial) 
+        or fail "Cannot write to $to: $!";
+    }
+    else {
+      print OUT or fail "Cannot write to $to: $!";
+    }
+  }
+  close(IN) or fail "Close failed on $from: $!";
+  close(OUT) or fail "Close failed on $to: $!";
+}
+
+sub template($$;) {
+  my ($name, $serial) = @_;
+  return <<EOF
+@	IN	SOA	$name. hostmaster.naantali.fi. (
+	$serial	; serial number
+	28800	; refresh
+	7200	; retry
+	604800	; expire
+	86400 )	; minimum time-to-live
+	NS	ns.naantali.fi.
+	NS	ns2.naantali.fi.
+
+
+EOF
+}
+
+__END__
+
+=head1 NAME
+
+dns-update - manage DNS zone files under CVS
+
+=head1 SYNOPSIS
+
+dns-update [options]
+
+=head1 DESCRIPTION
+
+TODO write a description
+
+=head1 OPTIONS
+
+  -f	Force regeneration even if the zone has not changed.
+
+=head1 BUGS
+
+This manpage.
+
+=head1 AUTHOR
+
+Tommi Virtanen <tv@havoc.fi>
+
+=cut

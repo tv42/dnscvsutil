@@ -1,0 +1,21 @@
+#!/bin/sh -e
+
+STATEDIR="/var/state/dnscvsutil"
+if [ "$1" = "configure" ]; then
+    if [ \! -d "$STATEDIR/cvs/CVSROOT" ]
+    then
+        addgroup --quiet dnsadmin
+        cvs -d "$STATEDIR/cvs" init
+        mkdir "$STATEDIR/cvs/domains"
+        chgrp -R dnsadmin "$STATEDIR/cvs" \
+            "$STATEDIR/compiled"
+        cd "$STATEDIR"
+        cvs -q -d "$STATEDIR/cvs" co domains
+        chgrp -R dnsadmin "$STATEDIR/domains"
+        chmod g+ws "$STATEDIR/cvs" \
+            "$STATEDIR/cvs/CVSROOT" \
+            "$STATEDIR/cvs/domains" \
+            "$STATEDIR/domains" \
+            "$STATEDIR/compiled"
+    fi
+fi

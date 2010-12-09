@@ -173,6 +173,7 @@ sub template($$$;) {
       or fail "Invalid option $1 to !template in $name.domain";
     $vars{lc $1}=$_;    
   }
+  $vars{origin} or $vars{origin} = $allowed_opts{origin};
   return <<EOF
 \$TTL	$vars{minttl}	; time to live
 @	IN	SOA	$vars{origin}. $vars{hostmaster}. (
